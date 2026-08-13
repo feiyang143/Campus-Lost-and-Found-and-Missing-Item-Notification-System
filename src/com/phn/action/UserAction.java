@@ -1,0 +1,846 @@
+package com.phn.action;
+
+import java.io.IOException;
+import java.util.List;
+
+import javax.annotation.Resource;
+import javax.servlet.http.HttpSession;
+
+import org.apache.http.HttpResponse;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.protocol.HTTP;
+import org.apache.struts2.ServletActionContext;
+import org.springframework.stereotype.Controller;
+
+import com.phn.entity.User;
+import com.phn.entity.Pages;
+import com.phn.service.UserService;
+
+@Controller("userAction")
+
+public class UserAction {
+
+    private User user;
+    private UserService userService;
+    private HttpSession session;
+
+    public User getUser() {
+        return user;
+    }
+
+    public void setUser(User user) {
+        this.user = user;
+    }
+
+    public UserService getUserService() {
+        return userService;
+    }
+
+    @Resource
+    public void setUserService(UserService userService) {
+        this.userService = userService;
+    }
+
+    public HttpSession getSession() {
+        return session;
+    }
+
+    public void setSession(HttpSession session) {
+        this.session = session;
+    }
+
+    public String Login() throws Exception {
+        session = ServletActionContext.getRequest().getSession();
+
+        // If user is not null, try to find user from database
+        if (user != null) {
+            User existingUser = userService.find(user.getUsername());
+            if (existingUser != null) {
+                // Validate password
+                if (existingUser.getUserpassword() != null && existingUser.getUserpassword().equals(user.getUserpassword())) {
+                    session.setAttribute("sessionUser", existingUser);
+                    session.setMaxInactiveInterval(900);
+                    System.out.println("Notice: User login success (password validated)");
+                    return "user_login_success";
+                } else {
+                    System.out.println("Notice: User login failed (invalid password)");
+                    return "user_login_failed";
+                }
+            } else {
+                System.out.println("Notice: User login failed (user not found)");
+                return "user_login_failed";
+            }
+        }
+
+        System.out.println("Notice: User login failed (invalid input)");
+        return "user_login_failed";
+    }
+
+    public String Logout() throws Exception {
+        session.removeAttribute("sessionUser");
+        System.out.println("Notice: User logout success!");
+        return "user_logout_success";
+    }
+    
+    public String Register() throws Exception {
+        session = ServletActionContext.getRequest().getSession();
+        
+        try {
+            System.out.println("Notice: User registration started");
+            
+            // Get request parameters
+            javax.servlet.http.HttpServletRequest request = ServletActionContext.getRequest();
+            String username = request.getParameter("username");
+            String userpassword = request.getParameter("userpassword");
+            String usernickname = request.getParameter("usernickname");
+            String userphone = request.getParameter("userphone");
+            String userqq = request.getParameter("userqq");
+            
+            System.out.println("Notice: User registration parameters - username: " + username + ", userpassword: " + userpassword + ", usernickname: " + usernickname + ", userphone: " + userphone + ", userqq: " + userqq);
+            
+            // Check if parameters are valid
+            if (username == null || username.isEmpty() || userpassword == null || userpassword.isEmpty()) {
+                System.out.println("Notice: User registration failed - username or password is empty");
+                return "user_register_failed";
+            }
+            
+            // JDBC connection parameters
+            String driver = "com.mysql.jdbc.Driver";
+            String url = "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8";
+            String dbUsername = "root";
+            String dbPassword = "root";
+            
+            // Load driver
+            Class.forName(driver);
+            
+            // Establish connection
+            java.sql.Connection conn = java.sql.DriverManager.getConnection(url, dbUsername, dbPassword);
+            
+            // Check if user already exists
+            System.out.println("Notice: Checking if user already exists");
+            java.sql.PreparedStatement checkStmt = conn.prepareStatement("SELECT * FROM t_user WHERE username = ?");
+            checkStmt.setString(1, username);
+            java.sql.ResultSet rs = checkStmt.executeQuery();
+            
+            if (rs.next()) {
+                System.out.println("Notice: User registration failed - user already exists");
+                rs.close();
+                checkStmt.close();
+                conn.close();
+                return "user_register_failed";
+            }
+            
+            // Get next available id
+            System.out.println("Notice: Getting next available id");
+            java.sql.Statement idStmt = conn.createStatement();
+            java.sql.ResultSet idRs = idStmt.executeQuery("SELECT MAX(id) as max_id FROM t_user");
+            int nextId = 1;
+            if (idRs.next()) {
+                nextId = idRs.getInt("max_id") + 1;
+            }
+            idRs.close();
+            idStmt.close();
+            
+            // Insert new user into database
+            System.out.println("Notice: Inserting new user into database with id: " + nextId);
+            String nickname = usernickname != null && !usernickname.isEmpty() ? usernickname : username;
+            java.sql.PreparedStatement insertStmt = conn.prepareStatement("INSERT INTO t_user (id, username, userpassword, usernickname, userphone, userqq, userstatus, reward_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            insertStmt.setInt(1, nextId);
+            insertStmt.setString(2, username);
+            insertStmt.setString(3, userpassword);
+            insertStmt.setString(4, nickname);
+            insertStmt.setString(5, userphone != null ? userphone : "");
+            insertStmt.setString(6, userqq != null ? userqq : "");
+            insertStmt.setInt(7, 1); // Set userstatus to 1 (active)
+            insertStmt.setInt(8, 0); // Set reward_points to 0
+            
+            int rowsAffected = insertStmt.executeUpdate();
+            if (rowsAffected > 0) {
+                System.out.println("Notice: User registration success");
+                
+                // Create a simple user object for session
+                com.phn.entity.User newUser = new com.phn.entity.User();
+                newUser.setUsername(username);
+                newUser.setUserpassword(userpassword);
+                newUser.setUsernickname(nickname);
+                newUser.setUserphone(userphone);
+                newUser.setUserqq(userqq);
+                newUser.setReward_points(0);
+                
+                // Log in the new user automatically
+                session.setAttribute("sessionUser", newUser);
+                session.setMaxInactiveInterval(900);
+                
+                rs.close();
+                checkStmt.close();
+                insertStmt.close();
+                conn.close();
+                
+                return "user_register_success";
+            } else {
+                System.out.println("Notice: User registration failed - no rows affected");
+                rs.close();
+                checkStmt.close();
+                insertStmt.close();
+                conn.close();
+                return "user_register_failed";
+            }
+        } catch (Exception e) {
+            System.out.println("Notice: User registration exception: " + e.getMessage());
+            e.printStackTrace();
+            return "user_register_failed";
+        }
+    }
+
+    private List<User> users;
+    private List<com.phn.entity.Goods> listGoods;
+    private List<com.phn.entity.Comment> listComments;
+
+    public List<User> getUsers() {
+        return users;
+    }
+
+    public void setUsers(List<User> users) {
+        this.users = users;
+    }
+    
+    public List<com.phn.entity.Goods> getListGoods() {
+        return listGoods;
+    }
+    
+    public void setListGoods(List<com.phn.entity.Goods> listGoods) {
+        this.listGoods = listGoods;
+    }
+    
+    public List<com.phn.entity.Comment> getListComments() {
+        return listComments;
+    }
+    
+    public void setListComments(List<com.phn.entity.Comment> listComments) {
+        this.listComments = listComments;
+    }
+
+    private int pageNo = 1;
+    private int pageSize = 10;
+    private Pages pages;
+
+    public int getPageNo() {
+        return pageNo;
+    }
+
+    public void setPageNo(int pageNo) {
+        this.pageNo = pageNo;
+    }
+
+    public int getPageSize() {
+        return pageSize;
+    }
+
+    public void setPageSize(int pageSize) {
+        this.pageSize = pageSize;
+    }
+
+    public Pages getPages() {
+        return pages;
+    }
+
+    public void setPages(Pages pages) {
+        this.pages = pages;
+    }
+    
+    // Add pageBean property for JSP access via Struts2 tags
+    public Pages getPageBean() {
+        return pages;
+    }
+    
+    public void setPageBean(Pages pageBean) {
+        this.pages = pageBean;
+    }
+
+    public String GetAll() throws Exception {
+        session = ServletActionContext.getRequest().getSession();
+        try {
+            System.out.println("Notice: UserAction.GetAll() started");
+            System.out.println("Notice: userService is " + (userService != null ? "not null" : "null"));
+            
+            // Directly test Hibernate query to get users
+            try {
+                // Get SessionFactory from Spring context
+                org.springframework.context.ApplicationContext context = 
+                    new org.springframework.context.support.ClassPathXmlApplicationContext("applicationContext.xml");
+                org.hibernate.SessionFactory sessionFactory = 
+                    (org.hibernate.SessionFactory) context.getBean("sessionFactory");
+                
+                // Open session and query users
+                org.hibernate.Session hibernateSession = sessionFactory.openSession();
+                java.util.List<User> userList = hibernateSession.createQuery("from User us order by us.id desc").list();
+                hibernateSession.close();
+                
+                System.out.println("Notice: Direct Hibernate query found " + userList.size() + " users");
+                for (User user : userList) {
+                    System.out.println("Notice: User: " + user.getId() + " - " + user.getUsername() + " - " + user.getUsernickname());
+                }
+                
+                // Create pages object with user list
+                pages = new Pages();
+                pages.setCurrentPage(1);
+                pages.setPageSize(10);
+                pages.setAllRecords(userList.size());
+                pages.setTotalPages((userList.size() + 9) / 10); // Simple calculation
+                pages.setListUser(userList);
+                
+                // Store in session and set users property
+                session.setAttribute("pageBean", pages);
+                users = userList;
+                
+                System.out.println("Notice: pages.allRecords = " + pages.getAllRecords());
+                System.out.println("Notice: pages.currentPage = " + pages.getCurrentPage());
+                System.out.println("Notice: pages.totalPages = " + pages.getTotalPages());
+                System.out.println("Notice: pages.pageSize = " + pages.getPageSize());
+                System.out.println("Notice: users size = " + users.size());
+                
+            } catch (Exception e) {
+                System.out.println("Notice: Direct Hibernate query failed: " + e.getMessage());
+                e.printStackTrace();
+                // Create empty pages object
+                pages = new Pages();
+                pages.setCurrentPage(1);
+                pages.setPageSize(10);
+                pages.setAllRecords(0);
+                pages.setTotalPages(0);
+                session.setAttribute("pageBean", pages);
+            }
+            
+            return "user_getAll_success";
+        } catch (Exception e) {
+            System.out.println("Notice: UserAction.GetAll() exception: " + e.getMessage());
+            e.printStackTrace();
+            // Create empty pages object
+            pages = new Pages();
+            pages.setCurrentPage(1);
+            pages.setPageSize(10);
+            pages.setAllRecords(0);
+            pages.setTotalPages(0);
+            session.setAttribute("pageBean", pages);
+            return "user_getAll_success";
+        }
+    }
+    
+    // Add a no-argument constructor to ensure Struts2 can instantiate Action correctly
+    public UserAction() {
+        System.out.println("Notice: UserAction constructor called");
+    }
+    
+    // Add getListUser method for JSP page to access user list
+    public List<User> getListUser() {
+        if (pages != null) {
+            return pages.getListUser();
+        }
+        return null;
+    }
+
+    // Other methods...
+    
+    public String GoHome() throws Exception {
+        try {
+            session = ServletActionContext.getRequest().getSession();
+            if (session != null) {
+                User sessionUser = (User) session.getAttribute("sessionUser");
+                if (sessionUser != null) {
+                    System.out.println("Notice: User go home success: " + sessionUser.getUsername());
+                    
+                    // Refresh user info from database to get complete details
+                    try {
+                        Class.forName("com.mysql.jdbc.Driver");
+                        java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                            "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                            "root",
+                            "root"
+                        );
+                        
+                        // Query user details
+                        java.sql.Statement stmt = conn.createStatement();
+                        java.sql.ResultSet rs = stmt.executeQuery(
+                            "SELECT * FROM t_user WHERE id = " + sessionUser.getId()
+                        );
+                        
+                        if (rs.next()) {
+                            // Update session user with complete info
+                            sessionUser.setUsernickname(rs.getString("usernickname"));
+                            sessionUser.setUserphone(rs.getString("userphone"));
+                            sessionUser.setUserqq(rs.getString("userqq"));
+                            session.setAttribute("sessionUser", sessionUser);
+                            
+                            // Set user property for JSP page
+                            this.user = sessionUser;
+                            System.out.println("Notice: User info refreshed: " + sessionUser.getUsernickname());
+                        }
+                        
+                        rs.close();
+                        stmt.close();
+                        conn.close();
+                    } catch (Exception e) {
+                        System.out.println("Notice: Refresh user info exception: " + e.getMessage());
+                        e.printStackTrace();
+                        // Set user property even if exception occurs
+                        this.user = sessionUser;
+                    }
+                    
+                    // Ensure user property is set
+                    if (this.user == null) {
+                        this.user = sessionUser;
+                    }
+                    
+                    return "user_goHome_success";
+                } else {
+                    System.out.println("Notice: User go home failed - no session user");
+                    return "user_goHome_failed";
+                }
+            } else {
+                System.out.println("Notice: User go home failed - no session");
+                return "user_goHome_failed";
+            }
+        } catch (Exception e) {
+            System.out.println("Notice: User go home exception: " + e.getMessage());
+            e.printStackTrace();
+            return "user_goHome_failed";
+        }
+    }
+    
+    public String GetAllGoods() throws Exception {
+        try {
+            session = ServletActionContext.getRequest().getSession();
+            User sessionUser = (User) session.getAttribute("sessionUser");
+            if (sessionUser != null) {
+                System.out.println("Notice: User get all goods success: " + sessionUser.getUsername());
+                
+                // Get user's goods from database
+                try {
+                    // Create empty list to avoid null pointer exception
+                    this.listGoods = new java.util.ArrayList<com.phn.entity.Goods>();
+                    System.out.println("Notice: User get all goods - creating empty list");
+                    
+                    // Test database connection
+                    try {
+                        Class.forName("com.mysql.jdbc.Driver");
+                        java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                            "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                            "root",
+                            "root"
+                        );
+                        System.out.println("Notice: Database connection successful");
+                        
+                        // Query goods from database with area and type information
+                        java.sql.Statement stmt = conn.createStatement();
+                        java.sql.ResultSet rs = stmt.executeQuery(
+                            "SELECT g.*, a.areaname, t.typename FROM t_goods g " +
+                            "LEFT JOIN t_area a ON g.area_id = a.id " +
+                            "LEFT JOIN t_type t ON g.type_id = t.id " +
+                            "WHERE g.user_id = " + sessionUser.getId() + " ORDER BY g.goodstime DESC"
+                        );
+                        
+                        // Process result set
+                        while (rs.next()) {
+                            com.phn.entity.Goods goods = new com.phn.entity.Goods();
+                            goods.setId(rs.getInt("g.id"));
+                            goods.setGoodsname(rs.getString("g.goodsname"));
+                            goods.setGoodsdescribe(rs.getString("g.goodsdescribe"));
+                            goods.setGoodstime(rs.getTimestamp("g.goodstime"));
+                            goods.setGoodsstatus(rs.getInt("g.goodsstatus"));
+                            goods.setGoodspictures(rs.getString("g.goodspictures"));
+                            
+                            // Set user
+                            com.phn.entity.User user = new com.phn.entity.User();
+                            user.setId(sessionUser.getId());
+                            goods.setGoodsuser(user);
+                            
+                            // Set area
+                            com.phn.entity.Area area = new com.phn.entity.Area();
+                            area.setId(rs.getInt("g.area_id"));
+                            area.setAreaname(rs.getString("a.areaname"));
+                            goods.setGoodsarea(area);
+                            
+                            // Set type
+                            com.phn.entity.Type type = new com.phn.entity.Type();
+                            type.setId(rs.getInt("g.type_id"));
+                            type.setTypename(rs.getString("t.typename"));
+                            goods.setGoodstype(type);
+                            
+                            this.listGoods.add(goods);
+                        }
+                        
+                        rs.close();
+                        stmt.close();
+                        conn.close();
+                        
+                        System.out.println("Notice: User goods count: " + this.listGoods.size());
+                    } catch (Exception e) {
+                        System.out.println("Notice: Database query exception: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                } catch (Exception e) {
+                    System.out.println("Notice: Get user goods exception: " + e.getMessage());
+                    e.printStackTrace();
+                    this.listGoods = new java.util.ArrayList<com.phn.entity.Goods>();
+                }
+                
+                return "user_getAllGoods_success";
+            } else {
+                System.out.println("Notice: User get all goods failed - no session user");
+                return "user_login_failed";
+            }
+        } catch (Exception e) {
+            System.out.println("Notice: User get all goods exception: " + e.getMessage());
+            e.printStackTrace();
+            this.listGoods = new java.util.ArrayList<com.phn.entity.Goods>();
+            return "user_login_failed";
+        }
+    }
+    
+    public String GetAllComments() throws Exception {
+        try {
+            session = ServletActionContext.getRequest().getSession();
+            User sessionUser = (User) session.getAttribute("sessionUser");
+            if (sessionUser != null) {
+                System.out.println("Notice: User get all comments success: " + sessionUser.getUsername());
+                
+                // Get user's comments from database
+                try {
+                    // Create empty list to avoid null pointer exception
+                    this.listComments = new java.util.ArrayList<com.phn.entity.Comment>();
+                    System.out.println("Notice: User get all comments - creating empty list");
+                    
+                    // Test database connection
+                    try {
+                        Class.forName("com.mysql.jdbc.Driver");
+                        java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                            "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                            "root",
+                            "root"
+                        );
+                        System.out.println("Notice: Database connection successful");
+                        
+                        // Query comments from database with goods information
+                        java.sql.Statement stmt = conn.createStatement();
+                        java.sql.ResultSet rs = stmt.executeQuery(
+                            "SELECT c.*, g.goodsname, g.goodsstatus FROM t_comment c " +
+                            "LEFT JOIN t_goods g ON c.goods_id = g.id " +
+                            "WHERE c.user_id = " + sessionUser.getId() + " ORDER BY c.commenttime DESC"
+                        );
+                        
+                        // Process result set
+                        while (rs.next()) {
+                            com.phn.entity.Comment comment = new com.phn.entity.Comment();
+                            comment.setId(rs.getInt("c.id"));
+                            comment.setCommentcontent(rs.getString("c.commentcontent"));
+                            comment.setCommenttime(rs.getTimestamp("c.commenttime"));
+                            
+                            // Set user
+                            com.phn.entity.User user = new com.phn.entity.User();
+                            user.setId(sessionUser.getId());
+                            comment.setCommentuser(user);
+                            
+                            // Set goods
+                            com.phn.entity.Goods goods = new com.phn.entity.Goods();
+                            goods.setId(rs.getInt("c.goods_id"));
+                            goods.setGoodsname(rs.getString("g.goodsname"));
+                            goods.setGoodsstatus(rs.getInt("g.goodsstatus"));
+                            comment.setCommentgoods(goods);
+                            
+                            this.listComments.add(comment);
+                        }
+                        
+                        rs.close();
+                        stmt.close();
+                        conn.close();
+                        
+                        System.out.println("Notice: User comments count: " + this.listComments.size());
+                    } catch (Exception e) {
+                        System.out.println("Notice: Database query exception: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                } catch (Exception e) {
+                    System.out.println("Notice: Get user comments exception: " + e.getMessage());
+                    e.printStackTrace();
+                    this.listComments = new java.util.ArrayList<com.phn.entity.Comment>();
+                }
+                
+                return "user_getAllComments_success";
+            } else {
+                System.out.println("Notice: User get all comments failed - no session user");
+                return "user_login_failed";
+            }
+        } catch (Exception e) {
+            System.out.println("Notice: User get all comments exception: " + e.getMessage());
+            e.printStackTrace();
+            this.listComments = new java.util.ArrayList<com.phn.entity.Comment>();
+            return "user_login_failed";
+        }
+    }
+    
+    public String UpdateInfo() throws Exception {
+        try {
+            session = ServletActionContext.getRequest().getSession();
+            User sessionUser = (User) session.getAttribute("sessionUser");
+            if (sessionUser != null) {
+                System.out.println("Notice: User update info success: " + sessionUser.getUsername());
+                
+                // Get request parameters
+                javax.servlet.http.HttpServletRequest request = ServletActionContext.getRequest();
+                String userNic = request.getParameter("userNic");
+                String userEmail = request.getParameter("userEmail");
+                String userProfe = request.getParameter("userProfe");
+                
+                System.out.println("Notice: Update info parameters - userNic: " + userNic + ", userEmail: " + userEmail + ", userProfe: " + userProfe);
+                
+                // Update user info in database
+                try {
+                    Class.forName("com.mysql.jdbc.Driver");
+                    java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                        "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                        "root",
+                        "root"
+                    );
+                    
+                    // Update user details
+                    java.sql.PreparedStatement pstmt = conn.prepareStatement(
+                        "UPDATE t_user SET usernickname = ?, userphone = ?, userqq = ? WHERE id = ?"
+                    );
+                    pstmt.setString(1, userNic);
+                    pstmt.setString(2, userEmail);
+                    pstmt.setString(3, userProfe);
+                    pstmt.setInt(4, sessionUser.getId());
+                    
+                    int rowsAffected = pstmt.executeUpdate();
+                    System.out.println("Notice: User info updated in database, rows affected: " + rowsAffected);
+                    
+                    pstmt.close();
+                    conn.close();
+                    
+                    // Update session user with new info
+                    sessionUser.setUsernickname(userNic);
+                    sessionUser.setUserphone(userEmail);
+                    sessionUser.setUserqq(userProfe);
+                    session.setAttribute("sessionUser", sessionUser);
+                    System.out.println("Notice: Session user info updated");
+                    
+                } catch (Exception e) {
+                    System.out.println("Notice: Update user info exception: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                
+                return "user_update_info_success";
+            } else {
+                System.out.println("Notice: User update info failed - no session user");
+                return "user_login_failed";
+            }
+        } catch (Exception e) {
+            System.out.println("Notice: User update info exception: " + e.getMessage());
+            e.printStackTrace();
+            return "user_login_failed";
+        }
+    }
+    
+    public String GetRewardRanking() throws Exception {
+        try {
+            System.out.println("Notice: UserAction.GetRewardRanking() started");
+            
+            // Get session
+            session = ServletActionContext.getRequest().getSession();
+            
+            // Create list to store top 10 users by reward points
+            List<User> topUsers = new java.util.ArrayList<User>();
+            
+            // Query database for top 10 users by reward points
+            try {
+                Class.forName("com.mysql.jdbc.Driver");
+                java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                    "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                    "root",
+                    "root"
+                );
+                
+                // Query top 10 users by reward_points in descending order
+                java.sql.Statement stmt = conn.createStatement();
+                java.sql.ResultSet rs = stmt.executeQuery(
+                    "SELECT * FROM t_user ORDER BY reward_points DESC LIMIT 10"
+                );
+                
+                // Process result set
+                while (rs.next()) {
+                    User user = new User();
+                    user.setId(rs.getInt("id"));
+                    user.setUsername(rs.getString("username"));
+                    user.setUsernickname(rs.getString("usernickname"));
+                    user.setReward_points(rs.getInt("reward_points"));
+                    topUsers.add(user);
+                }
+                
+                rs.close();
+                stmt.close();
+                conn.close();
+                
+                System.out.println("Notice: Reward ranking query found " + topUsers.size() + " users");
+            } catch (Exception e) {
+                System.out.println("Notice: Get reward ranking exception: " + e.getMessage());
+                e.printStackTrace();
+            }
+            
+            // Set topUsers to session
+            session.setAttribute("topUsers", topUsers);
+            
+            return "user_getRewardRanking_success";
+        } catch (Exception e) {
+            System.out.println("Notice: UserAction.GetRewardRanking() exception: " + e.getMessage());
+            e.printStackTrace();
+            return "user_getRewardRanking_failed";
+        }
+    }
+    
+    public String GetDataStatistics() throws Exception {
+        try {
+            System.out.println("Notice: UserAction.GetDataStatistics() started");
+            
+            // Get session
+            session = ServletActionContext.getRequest().getSession();
+            
+            // Initialize counters
+            int lostCount = 0;
+            int foundCount = 0;
+            
+            // Query database for lost and found counts
+            try {
+                Class.forName("com.mysql.jdbc.Driver");
+                java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                    "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                    "root",
+                    "root"
+                );
+                
+                // Query lost count (goodsstatus=1)
+                java.sql.Statement stmtLost = conn.createStatement();
+                java.sql.ResultSet rsLost = stmtLost.executeQuery(
+                    "SELECT COUNT(*) FROM t_goods WHERE goodsstatus = 1"
+                );
+                if (rsLost.next()) {
+                    lostCount = rsLost.getInt(1);
+                }
+                rsLost.close();
+                stmtLost.close();
+                
+                // Query found count (goodsstatus=2)
+                java.sql.Statement stmtFound = conn.createStatement();
+                java.sql.ResultSet rsFound = stmtFound.executeQuery(
+                    "SELECT COUNT(*) FROM t_goods WHERE goodsstatus = 2"
+                );
+                if (rsFound.next()) {
+                    foundCount = rsFound.getInt(1);
+                }
+                rsFound.close();
+                stmtFound.close();
+                
+                conn.close();
+                
+                System.out.println("Notice: Data statistics - lost: " + lostCount + ", found: " + foundCount);
+            } catch (Exception e) {
+                System.out.println("Notice: Get data statistics exception: " + e.getMessage());
+                e.printStackTrace();
+            }
+            
+            // Set counts to session
+            session.setAttribute("lostCount", lostCount);
+            session.setAttribute("foundCount", foundCount);
+            
+            return "user_getDataStatistics_success";
+        } catch (Exception e) {
+            System.out.println("Notice: UserAction.GetDataStatistics() exception: " + e.getMessage());
+            e.printStackTrace();
+            return "user_getDataStatistics_failed";
+        }
+    }
+    
+    public String deleteUser() throws Exception {
+        try {
+            System.out.println("Notice: UserAction.deleteUser() started");
+            
+            // Get session
+            session = ServletActionContext.getRequest().getSession();
+            
+            // Get user id from request
+            javax.servlet.http.HttpServletRequest request = ServletActionContext.getRequest();
+            String userIdStr = request.getParameter("userId");
+            
+            if (userIdStr == null || userIdStr.isEmpty()) {
+                System.out.println("Notice: Delete user failed - no user id provided");
+                return "user_delete_failed";
+            }
+            
+            int userId = Integer.parseInt(userIdStr);
+            System.out.println("Notice: Deleting user with id: " + userId);
+            
+            // Connect to database and delete user
+            try {
+                Class.forName("com.mysql.jdbc.Driver");
+                java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                    "jdbc:mysql://localhost:3306/lostfound?useUnicode=true&characterEncoding=UTF-8",
+                    "root",
+                    "root"
+                );
+                
+                // Delete user's comments first
+                java.sql.PreparedStatement pstmtComment = conn.prepareStatement(
+                    "DELETE FROM t_comment WHERE user_id = ?"
+                );
+                pstmtComment.setInt(1, userId);
+                int commentsDeleted = pstmtComment.executeUpdate();
+                System.out.println("Notice: Comments deleted for user " + userId + ": " + commentsDeleted);
+                pstmtComment.close();
+                
+                // Delete user's goods (启事)
+                java.sql.PreparedStatement pstmtGoods = conn.prepareStatement(
+                    "DELETE FROM t_goods WHERE user_id = ?"
+                );
+                pstmtGoods.setInt(1, userId);
+                int goodsDeleted = pstmtGoods.executeUpdate();
+                System.out.println("Notice: Goods deleted for user " + userId + ": " + goodsDeleted);
+                pstmtGoods.close();
+                
+                // Delete user from database
+                java.sql.PreparedStatement pstmt = conn.prepareStatement(
+                    "DELETE FROM t_user WHERE id = ?"
+                );
+                pstmt.setInt(1, userId);
+                
+                int rowsAffected = pstmt.executeUpdate();
+                System.out.println("Notice: User deleted, rows affected: " + rowsAffected);
+                
+                pstmt.close();
+                conn.close();
+                
+                if (rowsAffected > 0) {
+                    System.out.println("Notice: User delete success");
+                } else {
+                    System.out.println("Notice: User delete failed - no rows affected");
+                    return "user_delete_failed";
+                }
+            } catch (Exception e) {
+                System.out.println("Notice: Delete user exception: " + e.getMessage());
+                e.printStackTrace();
+                return "user_delete_failed";
+            }
+            
+            // Refresh user list
+            return GetAll();
+        } catch (Exception e) {
+            System.out.println("Notice: UserAction.DeleteUser() exception: " + e.getMessage());
+            e.printStackTrace();
+            return "user_delete_failed";
+        }
+    }
+}
