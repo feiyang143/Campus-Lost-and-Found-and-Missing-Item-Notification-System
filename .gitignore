@@ -1,0 +1,23 @@
+# 构建产物
+target/
+
+# IDE（IntelliJ IDEA / Eclipse）
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# 日志与临时文件
+*.log
+*.bak
+*.tmp
+*.swp
+
+# WorkBuddy 内部记忆/工作目录（含项目分析笔记，不应进仓库）
+.workbuddy/
+
+# 说明：本项目为免构建部署副本，WEB-INF/classes 与 WEB-INF/lib 内含已编译类与依赖 jar，
+# 是运行所必需，故不纳入忽略；如需改为 Maven 标准构建，可改为忽略二者并在 src/ 下按标准布局组织源码。
