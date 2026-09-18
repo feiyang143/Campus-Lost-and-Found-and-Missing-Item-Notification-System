@@ -38,7 +38,7 @@ LostFound/
 │   ├── web.xml            Servlet/Struts 过滤器与 Spring 监听器
 │   ├── classes/           编译后的 .class 与配置（db.properties / struts.xml / applicationContext.xml）
 │   ├── lib/               运行时依赖 jar
-│   └── src/               ★ 业务源码（已封入 WEB-INF，不对外暴露）
+│   └── src/               业务源码
 ├── META-INF/maven/        Maven artifact 元数据
 ├── add_reward_points_to_user.sql   积分字段迁移脚本
 ├── create_reward_trigger.sql       积分触发器脚本
@@ -48,11 +48,10 @@ LostFound/
 ## 本地部署 / Deploy
 
 1. 安装 JDK 与 Apache Tomcat（本项目在 Tomcat 9 下验证）。
-2. 安装 MySQL，建立数据库（建议 `utf8mb4`）。
+2. 安装 MySQL，建立数据库。
 3. 修改 `WEB-INF/classes/db.properties` 的数据库连接与账号密码，匹配你的环境。
-4. （可选）执行 `add_reward_points_to_user.sql` 与 `create_reward_trigger.sql` 初始化积分字段与触发器。
-5. 将整个 `LostFound` 目录放入 Tomcat 的 `webapps/`，启动后访问 `http://localhost:8080/LostFound/`。
-6. 首个管理员账号请在数据库中为用户记录设置管理员角色后登录后台。
+4. 将整个 `LostFound` 目录放入 Tomcat 的 `webapps/`，启动后访问 `http://localhost:8080/LostFound/`。
+5. 首个管理员账号请在数据库中为用户记录设置管理员角色后登录后台。
 
 ## 已知安全说明 / Security Notes
 
@@ -63,15 +62,3 @@ LostFound/
 - 管理后台与部分写操作缺少统一鉴权拦截器，需补齐登录 / 角色校验。
 - 用户密码为明文存储，正式环境应改为 bcrypt / Argon2 等加盐哈希。
 - 上传接口仅校验 Content-Type，需加扩展名白名单、随机文件名并存放到 web 根之外。
-
-已收敛项：移除 webapp 根目录的测试 / 工具遗留源码，并将业务 `src/` 封入 `WEB-INF/`（Tomcat 禁止对外访问 `/WEB-INF/*`）。
-
-## 提交到 GitHub / Push
-
-```bash
-git add -A
-git commit -m "LostFound：清理测试遗留、封装源码、补充文档"
-git push origin main      # 分支名按实际仓库调整
-```
-
-详见 `.gitignore`（已忽略 `target/`、IDE 产物与日志，保留 `WEB-INF/classes` 与 `lib` 以保证免构建可直接运行）。
